@@ -41,5 +41,44 @@ app.post("/admin/login", (req, res) => {
       JWT_SECRET,
       { expiresIn: "24h" },
     );
+    res.json({ token });
+  } else {
+    res.json({ message: "Invalid Secret." });
   }
+});
+
+app.get("/auth/google", (req, res) => {
+  const redirectUri = ``;
+  res.redirect(redirectUri);
+});
+
+app.get("/auth/google/callback", async (req, res) => {
+  const code = req.query.code;
+  if (!code) {
+    return res.status(400).json({ message: "No code provided." });
+  }
+  try {
+    const tokenResponse = await axios.post(
+      "",
+      new URLSearchParams({
+        code,
+        client_id: process.env.GOOGLE_CLIENT_ID,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET,
+        redirect_url: process.env.GOODLE_REDIRECT_URI,
+        grant_type: "authorization_code",
+      }),
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" } },
+    );
+    const accessToken = tokenResponse.data.access_token;
+
+    const userResponse = await axios.get("", {
+      headers: { Authorization: `Bearer${accessToken}` },
+    });
+
+    const { email, id, name, picture } = userResponse.data;
+
+    const token = jwt.sign({ userId: id, email, name, picture }, JWT_SECRET, {
+      expiresIn: "24h",
+    });
+  } catch (error) {}
 });

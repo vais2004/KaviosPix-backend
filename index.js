@@ -80,5 +80,21 @@ app.get("/auth/google/callback", async (req, res) => {
     const token = jwt.sign({ userId: id, email, name, picture }, JWT_SECRET, {
       expiresIn: "24h",
     });
-  } catch (error) {}
+    res.redirect(`${process.env.FRONTEND_URL}/auth/success?token=${token}`);
+  } catch (error) {
+    console.error(err.response?.data || err.message);
+    res.status(500).json({ message: "Google Auth failed" });
+  }
+});
+
+app.get("/api/protected", verifyJWT, (req, res) => {
+  res.json({
+    message: "Access granted to protected route",
+    user: req.user,
+  });
+});
+
+const PORT = 5000;
+app.listen(PORT, () => {
+  console.log(`Server is running on PORT ${PORT}`);
 });

@@ -1,0 +1,187 @@
+const express = require("express");
+const router = express.Router();
+const Album = require("../models/model.album");
+const User = require("../models/model.user");
+const Image = require("../models/model.images");
+const verifyJWT = require("../index");
+const cloundinary = require("../index");
+const streamifier = require("streamifier");
+
+//multer setup / memoryStorage
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, //5mb
+  fileFilter: (req, file, cb) => {
+    const ext = Path2D.extname(file.originalname).toLowerCase();
+    if ([".jpg", ".jpeg", ".png", "gif"].includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed"));
+    }
+  },
+});
+
+router.post(
+  "/:albumId/images",
+  verifyJWT,
+  upload.sinfle("file"),
+  async (req, res) => {
+    try {
+      const { albumId } = req.params;
+      const { tags = [], person = "", isFavorite = false } = req.body;
+
+      const album = await Album.findOne({ albumId });
+      if (!album) {
+        return res.status(404).json({ message: "Album not found." });
+      }
+
+      if (
+        album.ownerId !== req.user.userId &&
+        !album.sharedUsers.includes(req.user.email)
+      ) {
+        return res
+          .status(403)
+          .json({ message: "You do not have access to this album." });
+      }
+
+      if (!res.file) {
+        return res.status(400).json({ message: "No image file uploaded" });
+      }
+
+      const streamUpload = (buffer) => {
+        return new Promise((resolve, reject) => {
+          const stream = cloundinary.uploader.upload_stream(
+            { folder: `albums/${albumId}` },
+            (error, result) => {
+              if (error) {
+                reject(error);
+              } else {
+                resolve(result);
+              }
+            },
+          );
+          streamifier.createReadStream(buffer).pipe(stream);
+        });
+      };
+      const result = await streamUpload(req.file.buffer);
+      const newImage = new Image({
+        albumId,
+        name: result.public_id, // Cloudinary public_id
+        url: result.secure_url,
+        tags: Array.isArray(tags) ? tags : [tags],
+        person,
+        isFavorite: Boolean(isFavorite),
+        size: req.file.size,
+        uploadedAt: new Date(),
+        comments: [], // initialize empty array
+      });
+
+      await newImage.save();
+      res
+        .status(201)
+        .json({ message: "Image uploaded successfully", image: newImage });
+    } catch (error) {
+      console.error("Upload error:", error);
+      res.status(500).json({ message: "Failed to upload image" });
+    }
+  },
+);
+
+router.put(
+  "/:albumId/images/:imageId/favorite",
+  verifyJWT,
+  async (req, res) => {
+    try {
+      const { albumId, imageId } = req.params;
+      const { isFavorite } = req.body;
+
+      const album = await Album.findOne({ albumId });
+      if (!album) {
+        return res.status(404).json({ message: "Album not found." });
+      }
+      if (
+        album.ownerId !== req.user.userId &&
+        !album.sharedUsers.includes(req.user.email)
+      ) {
+        return res
+          .status(403)
+          .json({ message: "You do not have access to this album." });
+      }
+
+      const image = await Image.findOne({ _id: imageId, albumId });
+
+      if (!image) {
+        return res
+          .status(404)
+          .json({ message: "Image not found in this album" });
+      }
+
+      image.isFavorite = isFavorite;
+      await image.save();
+
+      res.status(200).json({ message: "Favorite status updated", image });
+    } catch (error) {
+      console.error("Favorite update error:", error);
+      res.status(500).json({ message: "Failed to update favorite status" });
+    }
+  },
+);
+
+router.post(
+  "/:albumId/images/:imageId/comments",
+  verifyJWT,
+  async (req, res) => {
+    try {
+      const { albumId, imageId } = req.params;
+      const { comment } = req.body;
+
+      if (!comment || typeof comment !== "string") {
+        return res
+          .status(400)
+          .json({ message: "Comment must be a valid string" });
+      }
+
+      const album = await Album.findOne({ albumId });
+      if (!album) {
+        return res.status(404).json({ message: "Album not found." });
+      }
+
+      if (
+        album.ownerId !== req.user.userId &&
+        !album.sharedUsers.includes(req.user.email)
+      ) {
+        return res
+          .status(403)
+          .json({ message: "You do not have access to this album" });
+      }
+
+      // find image
+      const image = await Image.findOne({ _id: imageId, albumId });
+      if (!image)
+        return res
+          .status(404)
+          .json({ message: "Image not found in this album" });
+
+      // add comment
+      image.comments.push(comment);
+      await image.save();
+
+      res.status(201).json({
+        message: "Comment added successfully",
+        image,
+      });
+    } catch (error) {
+      console.error("Add comment error:", error);
+      res.status(500).json({ message: "Failed to add comment" });
+    }
+  },
+);
+
+router.delete('/:albumId/images/:imageId',verifyJWT,async(req,res)=>{
+    try {
+        
+    } catch (error) {
+        
+    }
+})

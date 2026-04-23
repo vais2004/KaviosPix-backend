@@ -4,9 +4,9 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const { default: axios } = require("axios");
 
-const albumRoutes = require("");
-const imageRoutes = require("");
-const usersRoutes = require("");
+const albumRoutes = require("./routes/album.routes");
+const imageRoutes = require("./routes/image.routes");
+const usersRoutes = require("./routes/user.routes");
 
 const app = express();
 initialiseDatabase();
@@ -27,6 +27,32 @@ const SECRET_KEY = "";
 const JWT_SECRET = "";
 
 const verifyJWT = "";
+
+const cloudinary = require("cloudinary").v2;
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+const verifyJWT = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ message: "No token provided" });
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded; // This makes req.user.userId accessible
+    next();
+  } catch (error) {
+    return res.status(403).json({ message: "Invalid token" });
+  }
+};
 
 app.post("/admin/login", (req, res) => {
   const { secret } = req.body;
@@ -64,7 +90,7 @@ app.get("/auth/google/callback", async (req, res) => {
         code,
         client_id: process.env.GOOGLE_CLIENT_ID,
         client_secret: process.env.GOOGLE_CLIENT_SECRET,
-        redirect_url: process.env.GOODLE_REDIRECT_URI,
+        redirect_url: process.env.GOOGLE_REDIRECT_URI,
         grant_type: "authorization_code",
       }),
       { headers: { "Content-Type": "application/x-www-form-urlencoded" } },
@@ -72,7 +98,7 @@ app.get("/auth/google/callback", async (req, res) => {
     const accessToken = tokenResponse.data.access_token;
 
     const userResponse = await axios.get("", {
-      headers: { Authorization: `Bearer${accessToken}` },
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
 
     const { email, id, name, picture } = userResponse.data;
@@ -82,7 +108,7 @@ app.get("/auth/google/callback", async (req, res) => {
     });
     res.redirect(`${process.env.FRONTEND_URL}/auth/success?token=${token}`);
   } catch (error) {
-    console.error(err.response?.data || err.message);
+    console.error(error.response?.data || error.message);
     res.status(500).json({ message: "Google Auth failed" });
   }
 });

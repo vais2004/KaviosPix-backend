@@ -178,10 +178,138 @@ router.post(
   },
 );
 
-router.delete('/:albumId/images/:imageId',verifyJWT,async(req,res)=>{
-    try {
-        
-    } catch (error) {
-        
+router.delete("/:albumId/images/:imageId", verifyJWT, async (req, res) => {
+  try {
+    const { albumId, imageId } = req.params;
+
+    const album = await Album.findOne({ albumId });
+    if (!album) {
+      return res.status(404).json({ message: "Album not found" });
     }
-})
+
+    const image = await Image.findOne({ _id: imageId, albumId });
+    if (!image) {
+      return res.status(404).json({ message: "Image not found" });
+    }
+
+    if (album.ownerId !== req.user.userId) {
+      return res
+        .status(403)
+        .json({ message: "Not authorized to delete image" });
+    }
+    await cloundinary.uploader.destroy(image.name);
+    await Image.deleteOne({ imageId });
+    res.json({ message: "Image deleted successfully" });
+  } catch (err) {
+    console.error("Delete image error:", err);
+    res.status(500).json({ message: "Failed to delete image" });
+  }
+});
+
+const checkAlbumAccess = async (albumId, user) => {
+  const album = await Album.findOne({ albumId });
+  if (!album) return { error: "Album not found" };
+
+  const hasAccess =
+    album.ownerId === user.userId || album.sharedUsers.includes(user.email);
+
+  if (!hasAccess) return { error: "You do not have access to this album" };
+
+  return { album };
+};
+
+// get all images in an album (existing)
+router.get("/:albumId/images", verifyJWT, async (req, res) => {
+  try {
+    const { albumId } = req.params;
+    const access = await checkAlbumAccess(albumId, req.user);
+    if (access.error) return res.status(403).json({ message: access.error });
+
+    const images = await Image.find({ albumId });
+
+    const imageData = images.map((image) => {
+      const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+      return {
+        _id: image._id,
+        imageUrl: `https://res.cloudinary.com/${cloudName}/image/upload/${image.name}`,
+        comments: image.comments,
+        isFavorite: image.isFavorite || false,
+        tags: image.tags || [],
+      };
+    });
+
+    res.status(200).json(imageData);
+  } catch (error) {
+    console.error("Error fetching album images:", error);
+    res.status(500).json({ message: "Failed to fetch album images" });
+  }
+});
+
+// get favorite images in an album
+router.get("/:albumId/images/favorites", verifyJWT, async (req, res) => {
+  try {
+    const { albumId } = req.params;
+
+    // check access permission
+    const album = await Album.findOne({ albumId });
+    if (!album) return res.status(404).json({ message: "Album not found" });
+
+    // verify access
+    if (
+      album.ownerId !== req.user.userId &&
+      !album.sharedUsers.includes(req.user.email)
+    ) {
+      return res
+        .status(403)
+        .json({ message: "You do not have access to this album" });
+    }
+
+    const favoriteImages = await Image.find({
+      albumId,
+      isFavorite: true,
+    });
+
+    const formatted = favoriteImages.map((img) => ({
+      _id: img._id,
+      imageUrl: `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload/${img.name}`,
+      comments: img.comments || [],
+      isFavorite: img.isFavorite,
+    }));
+
+    res.status(200).json(formatted);
+  } catch (error) {
+    console.error("Error fetching favorite images:", error);
+    res.status(500).json({ message: "Failed to fetch favorite images" });
+  }
+});
+
+// get images by tags (query parameter)
+router.get("/:albumId/images/search", verifyJWT, async (req, res) => {
+  try {
+    const { albumId } = req.params;
+    const { tags } = req.query;
+
+    //check access
+    const access = await checkAlbumAccess(albumId, req.user);
+    if (access.error) return res.status(403).json({ message: access.error });
+
+    if (!tags)
+      return res
+        .status(400)
+        .json({ message: "Please provide tag(s) to search" });
+
+    const tagList = tags.split(",").map((tag) => tag.trim().toLowerCase());
+
+    const images = await Image.find({
+      albumId,
+      tags: { $in: tagList },
+    });
+
+    res.status(200).json(images);
+  } catch (error) {
+    console.error("Error fetching images by tag:", error);
+    res.status(500).json({ message: "Failed to fetch images by tags" });
+  }
+});
+
+module.exports = router;
